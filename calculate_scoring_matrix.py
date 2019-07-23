@@ -463,6 +463,8 @@ def formulate_matrices(reviewers, reviewer_capacities, reviewer_quotas, paper_co
     
     for i,r in enumerate(sorted(reviewers.keys())):
         for j,p in enumerate(sorted(papers.keys())):
+            common_coauthors = []
+
             # Raj: don't assign this to 0
             conflict = conflicts_matrix[i, j]
             authors = parse_authors(papers[p]['Author Emails'])
