@@ -1,13 +1,23 @@
 import csv
 import glob
 import hashlib
+import uuid
 import os
 from argparse import ArgumentParser
 
+
+hashmap = {}
+
 def encrypt_string(hash_string):
-    sha_signature = \
-        hashlib.md5(hash_string.strip().replace('"','').encode()).hexdigest()
-    return sha_signature
+    hash_string = hash_string.strip().replace('"','')
+    if not hash_string in hashmap:
+        hashmap[hash_string] = uuid.uuid4().hex
+    return hashmap[hash_string]
+
+
+def encrypt_subjectlist(subjectlist_string):
+    return ';'.join([encrypt_string(val) for val in subjectlist_string.split(';')])
+
 
 def obfuscate_reviewers(folder, reviewers_csv):
     with open(os.path.join(folder, 'o-{}'.format(reviewers_csv)), 'w', newline='') as o_csvfile:
@@ -19,11 +29,11 @@ def obfuscate_reviewers(folder, reviewers_csv):
                     spamwriter.writerow(datum)
                     continue
                 
-                firstname, lastname, email, org, assigned, comp, comp_percent, bids, conflicts_entered, user_type, sa_selected, sa_primary, sa_secondary, \
-                    num_ratings, avg_rating, _ = datum
+                firstname, lastname, email, org, quota, assigned, comp, comp_percent, bids, conflicts_entered, user_type, ext_prof_entered, sa_selected, sa_primary, sa_secondary, \
+                    _ = datum
                 spamwriter.writerow([
-                    encrypt_string(firstname), encrypt_string(lastname), encrypt_string(email), encrypt_string(org), assigned, comp, comp_percent, bids, \
-                    conflicts_entered, user_type, sa_selected, sa_primary, sa_secondary, num_ratings, avg_rating, _ 
+                    encrypt_string(firstname), encrypt_string(lastname), encrypt_string(email), encrypt_string(org), quota, assigned, comp, comp_percent, bids, \
+                    conflicts_entered, user_type, ext_prof_entered, sa_selected, encrypt_subjectlist(sa_primary), encrypt_subjectlist(sa_secondary), _ 
                     ])
 
 def obfuscate_quotas(folder, quotas_fn):
@@ -57,7 +67,7 @@ def obfuscate_papers(folder, papers_fn):
                 paper_id, created, modified, title, abstract, author_names, author_emails, track_name, primary_sa, secondary_sa, \
                 conflicts, assigned, completed, percent_completed, bids, discussion, status, requested_camera_ready, camera_ready_submitted, \
                 requested_author_feedback, author_feedback_submitted, files, num_files, supplementary_files, num_supplementary_files, \
-                reviewers, reviewer_emails, metareviewers, metareviewer_emails, sr_metareviewers, sr_metareviewer_emails, q2 = datum
+                reviewers, reviewer_emails, metareviewers, metareviewer_emails, sr_metareviewers, sr_metareviewer_emails, q3, q4, q5 = datum
                 
                 o_author_emails = []
                 for i,e in enumerate(author_emails.split(';')):
@@ -69,11 +79,11 @@ def obfuscate_papers(folder, papers_fn):
 
                 spamwriter.writerow([
                     encrypt_string(paper_id), created, modified, encrypt_string(title), encrypt_string(abstract), encrypt_string(author_names), \
-                    o_author_emails_str, track_name, primary_sa, secondary_sa, \
+                    o_author_emails_str, track_name, encrypt_subjectlist(primary_sa), encrypt_subjectlist(secondary_sa), \
                     conflicts, assigned, completed, percent_completed, bids, discussion, status, requested_camera_ready, camera_ready_submitted, \
                     requested_author_feedback, author_feedback_submitted, encrypt_string(files), num_files, encrypt_string(supplementary_files), num_supplementary_files, \
                     encrypt_string(reviewers), encrypt_string(reviewer_emails), encrypt_string(metareviewers), encrypt_string(metareviewer_emails), \
-                    encrypt_string(sr_metareviewers), encrypt_string(sr_metareviewer_emails), q2
+                    encrypt_string(sr_metareviewers), encrypt_string(sr_metareviewer_emails), q3, q4, q5
                     ])
 
 def obfuscate_conflicts(folder, conflicts_fn):
@@ -152,7 +162,7 @@ def obfuscate_folder(folder):
             obfuscate_conflicts(folder, fn)
         elif fn == 'ReviewerSuggestions.txt':
             obfuscate_reviewer_suggestions(folder, fn)
-        elif fn == 'ReviewerTpmsScores_CVPR2019.csv':
+        elif fn == 'ReviewerTpmsScores_ICCV2019.csv':
             obfuscate_tpms_scores(folder, fn)
         elif fn == 'Users.txt':
             obfuscate_users(folder, fn)
