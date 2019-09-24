@@ -1,11 +1,10 @@
 #declare -a greedy_steps=("0" "1" "2")
 declare -a greedy_steps=("2")
-declare -a tpms_weights=("0.5")
-declare -a subject_area_weights=("0.5")
+declare -a tpms_weights=("0.8")
+declare -a subject_area_weights=("0.2")
 declare -a suggestion_weights=("10.0")
-declare -a experience_weights=("0.1")
-#declare -a configs=("derek" "abhinav")
-declare -a configs=("abhinav")
+declare -a experience_weights=("0.0")
+declare -a configs=("low")
 
 declare inputs_folder="scoring-inputs"
 
@@ -22,14 +21,13 @@ do
 					for c in "${configs[@]}"
 						do
 						echo "**********************************************************************************";
-						nohup python -u calculate_scoring_matrix.py \
-							-u ./$inputs_folder/o-Users.txt \
-							-r ./$inputs_folder/o-reviewers.csv \
-							-t ./$inputs_folder/o-ReviewerTpmsScores_CVPR2019.csv \
-							-p ./$inputs_folder/o-Papers.csv \
-							-q ./$inputs_folder/o-quotas.csv \
-							-s ./$inputs_folder/o-ReviewerSuggestions.txt \
-							-c ./$inputs_folder/o-ReviewerConflicts.txt \
+						python -u calculate_scoring_matrix.py \
+							-u ./$inputs_folder/Users.txt \
+							-r ./$inputs_folder/reviewers.csv \
+							-t ./$inputs_folder/ReviewerTpmsScores_ICCV2019.csv \
+							-p ./$inputs_folder/Papers.csv \
+							-s ./$inputs_folder/ReviewerSuggestions.txt \
+							-c ./$inputs_folder/ReviewerConflicts.txt \
 							-n 3 \
 							-g $g \
 							-w_t $t \

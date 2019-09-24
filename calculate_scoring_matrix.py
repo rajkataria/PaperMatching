@@ -27,12 +27,9 @@ from ortools.graph import pywrapgraph
 from timeit import default_timer as timer
 
 experience_scores = {
-    'Faculty/Researcher, >10 times as reviewer for CVPR, ICCV, or ECCV': 1.0,
-    'Faculty/Researcher, 0-2 times as reviewer for CVPR, ICCV, or ECCV': 1.0,
-    'Faculty/Researcher, 3-10 times as reviewer for CVPR, ICCV, or ECCV': 0.5,
-    'Student, >3 times as reviewer for CVPR, ICCV, or ECCV': 0.5,
-    'Student, 0-2 times as reviewer for CVPR, ICCV, or ECCV': 0.0,
-    '': 0.0
+    'Researcher/faculty': 1.0,
+    'Student': 1.0,
+    '': 1.0
 }
 
 canonical_conflicts = {
@@ -103,42 +100,6 @@ def parse_conflicts(conflicts_fn, debug=False):
     print ('Total conflicts: {}'.format(total_conflicts))
     return paper_conflicts
 
-def parse_quotas(quotas_fn, debug=False):
-    reviewer_quotas = {}
-    with open(quotas_fn) as csvfile:
-        spamreader = csv.reader(csvfile, delimiter='\t', quotechar='"')
-        for d, datum in enumerate(spamreader):
-            # Skip the header
-            # Name    Last Name       Email   Assigned        Completed       Percentage      User Type       Quota
-            # Maximum number of papers
-            #
-            # Relevant information is on every other row
-            if d == 0 or (d + 1) % 2 == 0:
-                continue
-
-            firstname, lastname, email, assigned, comp, comp_percent, user_type, quota, _ = datum
-            key = '{}'.format(email)
-            if key in reviewer_quotas:
-                if debug:
-                    print ('\tUser already exists: {}'.format(key))
-
-            if quota == '-' or int(quota) == 0:
-                continue
-
-            reviewer_quotas[key] = {
-                'lastname': lastname, 
-                'firstname': firstname, 
-                'email': email, 
-                'assigned': assigned,
-                'completed': comp,
-                'completed percent': comp_percent,
-                'user type': user_type,
-                'quota': int(quota)
-                }
-            
-    print ('Total reviewers with quotas: {}'.format(len(reviewer_quotas.keys())))
-    return reviewer_quotas
-
 def parse_reviewers(reviewers_fn, users, organizations, debug=False):
     reviewers = {}
     domains = []
@@ -146,38 +107,39 @@ def parse_reviewers(reviewers_fn, users, organizations, debug=False):
         spamreader = csv.reader(csvfile, delimiter='\t', quotechar='"')
         for d, datum in enumerate(spamreader):
             # Skip the header
-            # 'First Name', 'Last Name', 'Email', 'Organization', 'Assigned', 'Completed', '% Completed', 
-            # 'Bids', 'Domain Conflicts Entered', 'User Type', 'Selected', 'Primary', 'Secondary'
+            # 'First Name', 'Last Name', 'Email', 'Organization', 'Quota', 'Assigned', 'Completed', '% Completed',
+            # 'Bids', 'Domain Conflicts Entered', 'User Type', 'External Profile Entered', 'Selected', 'Primary', 'Secondary', 'Actions'
             
             if d == 0:
                 continue
-            firstname, lastname, email, org, assigned, comp, comp_percent, bids, conflicts_entered, user_type, sa_selected, sa_primary, sa_secondary, \
-                num_ratings, avg_rating, _ = datum
-            key = '{}'.format(email)
+            firstname, lastname, email, org, quota, assigned, comp, comp_percent, bids, conflicts_entered, user_type, \
+            ext_profile_entered, sa_selected, sa_primary, sa_secondary, _ = datum
+            key = '{}'.format(email.strip())
             if key in reviewers:
                 if debug:
                     print ('\tUser already exists: {}'.format(key))
                 continue
 
+            # quota can't be cast to int if '-' is included for unavailable quotas
             reviewers[key] = {
-                'lastname': lastname, 
-                'firstname': firstname, 
-                'email': email, 
-                'org': org,
+                'lastname': lastname.strip(),
+                'firstname': firstname.strip(),
+                'email': email.strip(),
+                'org': org.strip(),
+                'quota': quota,
                 'original-conflicts': users[key]['conflicts'],
-                'original-conflicts-entered': True if conflicts_entered == 'Yes' else False,
+                'original-conflicts-entered': conflicts_entered == 'Yes',
                 'conflicts': users[key]['conflicts'],
-                'conflicts-entered': True if conflicts_entered == 'Yes' else False, # Field name changes later
+                'conflicts-entered': conflicts_entered.strip() == 'Yes', # Field name changes later
                 'assigned': assigned,
                 'completed': comp,
                 'completed percent': comp_percent,
                 'bids': bids,
-                'user type': user_type,
-                'selected': sa_selected,
-                'primary': sa_primary,
-                'secondary': sa_secondary,
-                'num_ratings': num_ratings,
-                'avg_rating': avg_rating,
+                'user type': user_type.strip(),
+                'external_profile_entered': ext_profile_entered,
+                'selected': sa_selected.strip(),
+                'primary': sa_primary.strip(),
+                'secondary': sa_secondary.strip(),
                 'papers': {}
                 }
                         
@@ -193,8 +155,8 @@ def parse_reviewers(reviewers_fn, users, organizations, debug=False):
 def parse_papers(papers_fn):
     papers = {}
     with open(papers_fn, encoding='latin-1') as csvfile:
-        spamreader = csv.reader(csvfile, delimiter=',', quotechar='"')
-        for d, datum in enumerate(spamreader):
+        reader = csv.reader(csvfile, delimiter=',', quotechar='"')
+        for d, datum in enumerate(reader):
             # Skip the header
             # 'Paper ID', 'Created', 'Last Modified', 'Paper Title', 'Abstract', 'Author Names', 'Author Emails', 
             # 'Track Name', 'Primary Subject Area', 'Secondary Subject Areas', 'Conflicts', 'Assigned', 'Completed', 
@@ -202,14 +164,14 @@ def parse_papers(papers_fn):
             # 'Requested For Author Feedback', 'Author Feedback Submitted?', 'Files', 'Number of Files', 
             # 'Supplementary Files', 'Number of Supplementary Files', 'Reviewers', 'Reviewer Emails', 'MetaReviewers', 
             # 'MetaReviewer Emails', 'SeniorMetaReviewers', 'SeniorMetaReviewerEmails', 
-            # 'Q2 (Policy Concerning Dual/Double Submissions)'
+            # 'Q3 (Submission Checklist)', 'Q4 (Policies Concerning Plagiarism and Double Submissions)', 'Q5 (Policy Concerning Media)'
 
             if d == 0:
                 continue
             paper_id, created, modified, title, abstract, author_names, author_emails, track_name, primary_sa, secondary_sa, \
                 conflicts, assigned, completed, percent_completed, bids, discussion, status, requested_camera_ready, camera_ready_submitted, \
                 requested_author_feedback, author_feedback_submitted, files, num_files, supplementary_files, num_supplementary_files, \
-                reviewers, reviewer_emails, metareviewers, metareviewer_emails, sr_metareviewers, sr_metareviewer_emails, q2 = datum
+                reviewers, reviewer_emails, metareviewers, metareviewer_emails, sr_metareviewers, sr_metareviewer_emails, q3, q4, q5 = datum
             
             if status != 'Awaiting Decision':
                 continue
@@ -245,8 +207,10 @@ def parse_papers(papers_fn):
                 'MetaReviewers': metareviewers, 
                 'MetaReviewer Emails': metareviewer_emails, 
                 'SeniorMetaReviewers': sr_metareviewers, 
-                'SeniorMetaReviewerEmails': sr_metareviewer_emails, 
-                'Q2 (Policy Concerning Dual/Double Submissions)': q2,
+                'SeniorMetaReviewerEmails': sr_metareviewer_emails,
+                'Q3 (Submission Checklist)': q3,
+                'Q4 (Policies Concerning Plagiarism and Double Submissions)': q4,
+                'Q5 (Policy Concerning Media)': q5,
                 'reviewers': {}
             }
     print ('Total papers: {}'.format(len(papers.keys())))
@@ -293,13 +257,13 @@ def calculate_suggestion_score(paper, reviewer_email):
         score = 0.0
     else:
         index = paper['Reviewers'].index(reviewer_email)
-        if index <= 7:
-            score = (8.0 - index) / 8.0
+        if index <= 19:
+            score = (20.0 - index) / 20.0
         else:
-            score = 1.0 / 10.0
+            score = 1.0 / 20.0
     return score
 
-def parse_and_calculate_scores(tpms_fn, reviewers, papers, reviewer_suggestions, w_t, w_a, w_s, w_e, debug=False):
+def parse_tpms_scores_file(tpms_fn):
     tpms_scores = {}
     with open(tpms_fn, encoding='latin-1') as csvfile:
         spamreader = csv.reader(csvfile, delimiter=',', quotechar='"')
@@ -314,7 +278,11 @@ def parse_and_calculate_scores(tpms_fn, reviewers, papers, reviewer_suggestions,
             if email not in tpms_scores:
                 tpms_scores[email] = {}
             tpms_scores[email][paper_id] = tpms
-    
+
+    return tpms_scores
+
+def parse_and_calculate_scores(tpms_scores_fn, reviewers, papers, reviewer_suggestions, w_t, w_a, w_s, w_e, debug=False):
+    tpms_scores = parse_tpms_scores_file(tpms_scores_fn)
     for email in reviewers:
         for paper_id in papers:
             if email not in reviewers:
@@ -410,7 +378,7 @@ def get_authors_and_reviewers_with_coauthors(reviewers, papers):
             authors_and_reviewers_with_coauthors[c] = list(set(coauthors[c]))
     return authors_and_reviewers_with_coauthors
 
-def formulate_matrices(reviewers, reviewer_capacities, reviewer_quotas, paper_conflicts, papers, users, debug=False):
+def formulate_matrices(reviewers, reviewer_capacities, paper_conflicts, papers, users, debug=False):
     scores_matrix = np.zeros((len(reviewers.keys()), len(papers.keys())))
     tpms_scores_matrix = np.zeros((len(reviewers.keys()), len(papers.keys())))
     subject_area_scores_matrix = np.zeros((len(reviewers.keys()), len(papers.keys())))
@@ -419,6 +387,7 @@ def formulate_matrices(reviewers, reviewer_capacities, reviewer_quotas, paper_co
 
     conflicts_matrix = np.zeros(scores_matrix.shape)
     capacity_vector = np.zeros(scores_matrix.shape[0]).astype(np.int)
+    reviewer_adjusted_capacities = []  # reviewer-calculated capacity pairs
     reviewer_mapping = {}
     paper_mapping = {}
     reverse_reviewer_mapping = {}
@@ -428,16 +397,21 @@ def formulate_matrices(reviewers, reviewer_capacities, reviewer_quotas, paper_co
         reviewer_mapping[str(i)] = r
         reverse_reviewer_mapping[r] = str(i)
         capacity_vector[i] = reviewer_capacities[reviewers[r]['user type']]
-        
+
+        # need to filter out quotas which are '-' and maybe 0?
         # Overwrite capacity based on user type with entered quota
-        if r in reviewer_quotas and reviewer_quotas[r]['quota'] < capacity_vector[i]:
-            capacity_vector[i] = reviewer_quotas[r]['quota']
+        if reviewers[r]['quota'] != '' and int(reviewers[r]['quota']) < capacity_vector[i]:
+            capacity_vector[i] = int(reviewers[r]['quota'])
 
         if 'Emergency' in reviewers[r]['secondary']:
             if debug:
                 print ("Emergency reviewer - {}. Decrementing capacity by 1".format(r))
 
             capacity_vector[i] = capacity_vector[i] - 1
+
+        # Record adjusted capacity for reviewer (after factoring in quota/user type/emergency reviewer
+        reviewer_adjusted_capacities.append([r, capacity_vector[i]])
+
         for j,p in enumerate(sorted(papers.keys())):
             paper_mapping[str(j)] = str(p)
             reverse_paper_mapping[str(p)] = str(j)
@@ -500,6 +474,7 @@ def formulate_matrices(reviewers, reviewer_capacities, reviewer_quotas, paper_co
         experience_scores_matrix, \
         conflicts_matrix, \
         capacity_vector, \
+        reviewer_adjusted_capacities, \
         reviewer_mapping, \
         paper_mapping, \
         reverse_reviewer_mapping, \
@@ -595,10 +570,10 @@ def solve_assigment_problem_greedy(scores_matrix, conflicts_matrix, capacity_vec
 
 def validate_results(output_folder, reviewer_suggestions, p_assignment_matrix, assignment_matrix, scores_matrix, \
     tpms_scores_matrix, subject_area_scores_matrix, suggestion_scores_matrix, experience_scores_matrix, conflicts_matrix, capacity_vector, \
-    reviewer_quotas, reviewer_mapping, paper_mapping, reverse_reviewer_mapping, num_reviews):
+    reviewer_mapping, paper_mapping, reverse_reviewer_mapping, num_reviews):
     fig = plt.gcf()
     fig.set_size_inches(18.5, 10.5)
-    
+
     print ('*'*50 + ' Validating results ' + '*'*50)
     reviews_per_paper = np.sum(assignment_matrix, axis=0)
     reviews_per_reviewer = np.sum(assignment_matrix, axis=1)
@@ -679,6 +654,8 @@ def validate_results(output_folder, reviewer_suggestions, p_assignment_matrix, a
         full_capacity[1], full_capacity[0] + full_capacity[1], round(100.0 * full_capacity[1] / (full_capacity[0] + full_capacity[1]), 2)
     ))
 
+    non_suggested_reviewer_list = []
+
     # Percentage of assigned 1st/2nd/3rd reviewers that are suggested
     plt.clf()
     for n in range(0,num_reviews):
@@ -691,6 +668,8 @@ def validate_results(output_folder, reviewer_suggestions, p_assignment_matrix, a
                     if reviewer_mapping[str(r)] in reviewer_suggestions[paper_mapping[str(j)]]['Reviewers']:
                         rank = reviewer_suggestions[paper_mapping[str(j)]]['Reviewers'].index(reviewer_mapping[str(r)])
                     else:
+                        # record list of non-suggested reviewer/paper pairs
+                        non_suggested_reviewer_list.append([paper_mapping[str(j)], reviewer_mapping[str(r)], reviewer_suggestions[paper_mapping[str(j)]]['MetaReviewer']])
                         if n == 0 or n == 1:
                             print ('\t\tN: {}\t\tReviewer: {}(r:{})\t\tPaper: {}(c:{})'.format(n, reviewer_mapping[str(r)], r, paper_mapping[str(j)], j))
                             if os.path.exists(os.path.join(output_folder, 'v-capacities-step-{}.json'.format(0))) and \
@@ -912,11 +891,17 @@ def load_xml_assignments(fn, reverse_paper_mapping, reverse_reviewer_mapping, as
             assignment_matrix[int(reverse_reviewer_mapping[reviewerid]), int(reverse_paper_mapping[paperid])] = 1
     return assignment_matrix
 
+def save_reviewer_capacities_file(reviewer_adjusted_capacities, fn):
+    with open(fn, 'w') as f:
+        writer = csv.writer(f, delimiter='\t')
+        writer.writerow(['Email', 'Computed Capacity'])
+        for pair in reviewer_adjusted_capacities:
+            writer.writerow(pair)
+
 def main():
     parser = ArgumentParser(description='')
     parser.add_argument('-u', '--users_txt', help='Users.txt as exported from CMT (contains conflict information)')
     parser.add_argument('-r', '--reviewers_csv', help='reviewers.csv as copied and pasted from CMT')
-    parser.add_argument('-q', '--quotas_csv', help='quotas.csv as copied and pasted from CMT')
     parser.add_argument('-c', '--conflicts_txt', help='ReviewerConflicts.txt as exported from CMT')
     parser.add_argument('-t', '--tpms_csv', help='ReviewerTpmsScores_CVPR2019 csv file that contains TPMS scores')
     parser.add_argument('-p', '--papers_csv', help='Papers.xls as exported from CMT (removed top 3 empty rows and converted xls file to csv)')
@@ -941,32 +926,17 @@ def main():
         parser_options.num_greedy_steps, parser_options.num_reviews, parser_options.config
     ))
 
-    if str.lower(parser_options.config) == 'derek':
+    if str.lower(parser_options.config) == 'high':
         reviewer_capacities = {
-            'Faculty/Researcher, >10 times as reviewer for CVPR, ICCV, or ECCV': 10,
-            'Faculty/Researcher, 3-10 times as reviewer for CVPR, ICCV, or ECCV': 10,
-            'Faculty/Researcher, 0-2 times as reviewer for CVPR, ICCV, or ECCV': 6,
-            'Student, >3 times as reviewer for CVPR, ICCV, or ECCV': 6,
-            'Student, 0-2 times as reviewer for CVPR, ICCV, or ECCV': 4,
-            '': 4
+            'Researcher/faculty': 10,
+            'Student': 6,
+            '': 6
         }
-    elif str.lower(parser_options.config) == 'abhinav':
+    elif str.lower(parser_options.config) == 'low':
         reviewer_capacities = {
-            'Faculty/Researcher, >10 times as reviewer for CVPR, ICCV, or ECCV': 9,
-            'Faculty/Researcher, 3-10 times as reviewer for CVPR, ICCV, or ECCV': 9,
-            'Faculty/Researcher, 0-2 times as reviewer for CVPR, ICCV, or ECCV': 7,
-            'Student, >3 times as reviewer for CVPR, ICCV, or ECCV': 7,
-            'Student, 0-2 times as reviewer for CVPR, ICCV, or ECCV': 4,
-            '': 4
-        }
-    else:
-        reviewer_capacities = {
-            'Faculty/Researcher, >10 times as reviewer for CVPR, ICCV, or ECCV': 10,
-            'Faculty/Researcher, 3-10 times as reviewer for CVPR, ICCV, or ECCV': 10,
-            'Faculty/Researcher, 0-2 times as reviewer for CVPR, ICCV, or ECCV': 6,
-            'Student, >3 times as reviewer for CVPR, ICCV, or ECCV': 6,
-            'Student, 0-2 times as reviewer for CVPR, ICCV, or ECCV': 4,
-            '': 4
+            'Researcher/faculty': 9,
+            'Student': 5,
+            '': 5
         }
 
 
@@ -987,7 +957,6 @@ def main():
         experience_scores_matrix = np.load(os.path.join(parser_options.cached_folder,'experience_scores.npy'))
         conflicts_matrix = np.load(os.path.join(parser_options.cached_folder,'conflicts.npy'))
         capacity_vector = np.load(os.path.join(parser_options.cached_folder, 'capacities.npy'))
-        reviewer_quotas = load(os.path.join(parser_options.cached_folder, 'reviewer_quotas.json'))
         
         assignment_matrix = load_xml_assignments(parser_options.cmt_assignments, reverse_paper_mapping, reverse_reviewer_mapping, assignment_matrix_ours.shape)
 
@@ -1011,7 +980,7 @@ def main():
         mkdir_p(output_folder)
         validate_results(output_folder, reviewer_suggestions, p_assignment_matrix, assignment_matrix, scores_matrix, \
             tpms_scores_matrix, subject_area_scores_matrix, suggestion_scores_matrix, experience_scores_matrix, conflicts_matrix, capacity_vector, \
-            reviewer_quotas, reviewer_mapping, paper_mapping, reverse_reviewer_mapping, int(parser_options.num_reviews))
+            reviewer_mapping, paper_mapping, reverse_reviewer_mapping, int(parser_options.num_reviews))
         return
 
     if not os.path.exists(os.path.join(parser_options.cached_folder, 'scores.npy')) or \
@@ -1021,11 +990,10 @@ def main():
         not os.path.exists(os.path.join(parser_options.cached_folder, 'experience_scores.npy')) or \
         not os.path.exists(os.path.join(parser_options.cached_folder, 'conflicts.npy')) or \
         not os.path.exists(os.path.join(parser_options.cached_folder, 'capacities.npy')):
-        
+
         if os.path.exists(os.path.join(parser_options.cached_folder, 'reviewers.json')) and \
             os.path.exists(os.path.join(parser_options.cached_folder, 'papers.json')) and \
             os.path.exists(os.path.join(parser_options.cached_folder, 'users.json')) and \
-            os.path.exists(os.path.join(parser_options.cached_folder, 'reviewer_quotas.json')) and \
             os.path.exists(os.path.join(parser_options.cached_folder, 'paper_conflicts.json')) and \
             os.path.exists(os.path.join(parser_options.cached_folder, 'reviewer_suggestions.json')):
 
@@ -1034,30 +1002,33 @@ def main():
             papers = load(os.path.join(parser_options.cached_folder, 'papers.json'))
             reviewer_suggestions = load(os.path.join(parser_options.cached_folder, 'reviewer_suggestions.json'))
             users = load(os.path.join(parser_options.cached_folder, 'users.json'))
-            reviewer_quotas = load(os.path.join(parser_options.cached_folder, 'reviewer_quotas.json'))
             paper_conflicts = load(os.path.join(parser_options.cached_folder, 'paper_conflicts.json'))
         else:
             print ('Calculating final scores and capacities...')
             papers = parse_papers(parser_options.papers_csv)
             users, organizations = parse_users(parser_options.users_txt)
-            reviewer_quotas = parse_quotas(parser_options.quotas_csv)
             paper_conflicts = parse_conflicts(parser_options.conflicts_txt)
             reviewers, domains = parse_reviewers(parser_options.reviewers_csv, users, organizations)
             reviewer_suggestions = parse_reviewer_suggestions(parser_options.reviewer_suggestions_txt)
+
+            paper_ids = set(papers.keys())
+            paper_ids_suggestions = set(reviewer_suggestions.keys())
+            print('Number of papers without reviewer suggestions:', len(paper_ids-paper_ids_suggestions))
+
             parse_and_calculate_scores(parser_options.tpms_csv, reviewers, papers, reviewer_suggestions, \
                 float(parser_options.w_t), float(parser_options.w_a), float(parser_options.w_s), float(parser_options.w_e), debug=parser_options.debug)
             
             print ('\tSaving intermediate reviewers and papers files')
             save(reviewers, os.path.join(output_folder, 'reviewers.json'))
-            save(reviewer_quotas, os.path.join(output_folder, 'reviewer_quotas.json'))
             save(paper_conflicts, os.path.join(output_folder, 'paper_conflicts.json'))
             save(papers, os.path.join(output_folder, 'papers.json'))
             save(users, os.path.join(output_folder, 'users.json'))
             save(reviewer_suggestions, os.path.join(output_folder, 'reviewer_suggestions.json'))
 
+        print('Calculating scores/capacities')
         scores_matrix, tpms_scores_matrix, subject_area_scores_matrix, suggestion_scores_matrix, experience_scores_matrix, \
-            conflicts_matrix, capacity_vector, reviewer_mapping, paper_mapping, reverse_reviewer_mapping, reverse_paper_mapping = \
-            formulate_matrices(reviewers, reviewer_capacities, reviewer_quotas, paper_conflicts, papers, users, debug=parser_options.debug)
+            conflicts_matrix, capacity_vector, reviewer_adjusted_capacities, reviewer_mapping, paper_mapping, reverse_reviewer_mapping, reverse_paper_mapping = \
+            formulate_matrices(reviewers, reviewer_capacities, paper_conflicts, papers, users, debug=parser_options.debug)
         np.save(os.path.join(output_folder, 'scores.npy'), scores_matrix)
         np.save(os.path.join(output_folder, 'tpms_scores.npy'), tpms_scores_matrix)
         np.save(os.path.join(output_folder, 'subject_area_scores.npy'), subject_area_scores_matrix)
@@ -1065,6 +1036,7 @@ def main():
         np.save(os.path.join(output_folder, 'experience_scores.npy'), experience_scores_matrix)
         np.save(os.path.join(output_folder, 'conflicts.npy'), conflicts_matrix)
         np.save(os.path.join(output_folder, 'capacities.npy'), capacity_vector)
+        save_reviewer_capacities_file(reviewer_adjusted_capacities, os.path.join(output_folder, 'reviewer-capacities.csv'))
         save(reviewer_mapping, os.path.join(output_folder, 'reviewer-mapping.json'))
         save(paper_mapping, os.path.join(output_folder, 'paper-mapping.json'))
         save(reverse_reviewer_mapping, os.path.join(output_folder, 'reverse-reviewer-mapping.json'))
@@ -1086,7 +1058,6 @@ def main():
         papers = load(os.path.join(parser_options.cached_folder, 'papers.json'))
         reviewer_suggestions = load(os.path.join(parser_options.cached_folder, 'reviewer_suggestions.json'))
         users = load(os.path.join(parser_options.cached_folder, 'users.json'))
-        reviewer_quotas = load(os.path.join(parser_options.cached_folder, 'reviewer_quotas.json'))
 
     if not os.path.exists(os.path.join(parser_options.cached_folder, 'assignments.npy')) or \
         not os.path.exists(os.path.join(parser_options.cached_folder, 'assignments.xml')):
@@ -1111,7 +1082,7 @@ def main():
 
     validate_results(output_folder, reviewer_suggestions, p_assignment_matrix, assignment_matrix, scores_matrix, \
         tpms_scores_matrix, subject_area_scores_matrix, suggestion_scores_matrix, experience_scores_matrix, conflicts_matrix, capacity_vector, \
-        reviewer_quotas, reviewer_mapping, paper_mapping, reverse_reviewer_mapping, int(parser_options.num_reviews))
+        reviewer_mapping, paper_mapping, reverse_reviewer_mapping, int(parser_options.num_reviews))
 
     output(int(parser_options.num_reviews), parser_options.cached_folder, output_folder)
 
