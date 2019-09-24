@@ -1,0 +1,14 @@
+[
+    {
+        "conflicts": [
+            "abc.edu"
+        ],
+        "firstname": "John",
+        "lastname": "Smith",
+        "org": "University of ABC",
+        "revised-conflicts": [
+            "abc"
+        ],
+        "notes": ""
+    }
+]
