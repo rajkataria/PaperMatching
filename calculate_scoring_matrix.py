@@ -3,27 +3,22 @@
 # Created by Rajbir Kataria (UIUC) - rk2@illinois.edu
 ##############################################################################################################
 ##############################################################################################################
-import community
 import copy
 import csv
-import datetime
 import json
 import matplotlib.pyplot as plt; plt.rcdefaults()
 import networkx as nx
 import networkx.algorithms.flow as flow
 import numpy as np
 import os
-import pprint
 import shutil
 import statistics
-import sys
 import xml.etree.ElementTree as ET
 import xml.dom.minidom as minidom
 
 from argparse import ArgumentParser
-from networkx.algorithms import bipartite
 from timeit import default_timer as timer
-from ortools.graph import pywrapgraph
+from ortools.graph.python import min_cost_flow
 from timeit import default_timer as timer
 
 experience_scores = {
@@ -539,22 +534,22 @@ def solve_assigment_problem_or_tools(scores_matrix, conflicts_matrix, capacity_v
                 unit_costs.append(-int(1000.0*scores_matrix[i,j]))
 
     # Instantiate a SimpleMinCostFlow solver.
-    min_cost_flow = pywrapgraph.SimpleMinCostFlow()
+    smcf = min_cost_flow.SimpleMinCostFlow()
     # Add each arc.
     for i in range(0, len(start_nodes)):
-        min_cost_flow.AddArcWithCapacityAndUnitCost(start_nodes[i], end_nodes[i], capacities[i], unit_costs[i])
+        smcf.add_arcs_with_capacity_and_unit_cost(start_nodes[i], end_nodes[i], capacities[i], unit_costs[i])
 
     # Add node supplies.
     for i in range(0, len(supplies)):
-        min_cost_flow.SetNodeSupply(i, supplies[i])
+        smcf.set_node_supply(i, supplies[i])
 
-    if min_cost_flow.Solve() == min_cost_flow.OPTIMAL:
-        for i in range(min_cost_flow.NumArcs()):
-            cost = min_cost_flow.Flow(i) * min_cost_flow.UnitCost(i)
+    if smcf.solve() == smcf.OPTIMAL:
+        for i in range(smcf.NumArcs()):
+            cost = smcf.flow(i) * smcf.unit_cost(i)
 
-            start = min_cost_flow.Tail(i)
-            end = min_cost_flow.Head(i)
-            flow = min_cost_flow.Flow(i)
+            start = smcf.tail(i)
+            end = smcf.head(i)
+            flow = smcf.flow(i)
 
             if start > 0:
                 assignment_matrix[start-1, end-node_offset] = flow
@@ -689,9 +684,9 @@ def validate_results(output_folder, reviewer_suggestions, p_assignment_matrix, a
                     if rank not in reviewer_ranks:
                         reviewer_ranks[rank] = 0
                     reviewer_ranks[rank] += 1
-            else:
-                if n == 0:
-                    print ('\t\tNo Suggestions for Paper: {}\t\tN: {}\t\tReviewer: {}\t\tPaper: {}'.format(paper_mapping[str(j)], \
+            elif n == 0:
+                r = paper_mapping[str(j)]
+                print ('\t\tNo Suggestions for Paper: {}\t\tN: {}\t\tReviewer: {}\t\tPaper: {}'.format(paper_mapping[str(j)], \
                         n, reviewer_mapping[str(r)], paper_mapping[str(j)]))
 
         rank_total_sum = 0.0
